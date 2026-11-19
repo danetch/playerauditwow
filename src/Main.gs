@@ -48,7 +48,7 @@ function run_(force) {
       attendance: getWaAttendance_(cfg.seasonStart || detectSeasonStart_()),
       vault: getWaVault_(period - 1), // coffre issu des donjons de la semaine précédente
       ilvls: getWaIlvls_(roster),
-      perf: getWclPerf_(cfg, roster, raids.difficulty),
+      seasonPerf: getWclPerf_(cfg, roster, raids.difficulty), // pour information
     };
 
     const rows = computeWeek_(cfg, data);

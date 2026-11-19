@@ -51,21 +51,30 @@ function getWeekRaids_(cfg, bounds) {
   };
   if (!reports.length) return result;
 
-  // Morts de tous les rapports en une seule requête (alias r0, r1, ...).
-  const deathsQuery = 'query{ reportData{ ' + reports.map(function (r, i) {
+  // Difficulté principale = celle où le raid a fait le plus de pulls (sauf si forcée dans Settings).
+  const pullsByDifficulty = {};
+  reports.forEach(function (r) {
+    r.fights.forEach(function (f) { pullsByDifficulty[f.difficulty] = (pullsByDifficulty[f.difficulty] || 0) + 1; });
+  });
+  result.difficulty = cfg.difficulty || Number(Object.keys(pullsByDifficulty).sort(function (a, b) {
+    return pullsByDifficulty[b] - pullsByDifficulty[a];
+  })[0]);
+
+  // Morts + parses des kills de tous les rapports, en une seule requête (alias r0, r1, ...).
+  const detailQuery = 'query{ reportData{ ' + reports.map(function (r, i) {
     const ids = r.fights.map(function (f) { return f.id; }).join(',');
-    return 'r' + i + ': report(code:"' + r.code + '"){ table(dataType:Deaths, fightIDs:[' + ids +
-      '], wipeCutoff:' + cfg.wipeCutoff + ') }';
+    return 'r' + i + ': report(code:"' + r.code + '"){' +
+      ' table(dataType:Deaths, fightIDs:[' + ids + '], wipeCutoff:' + cfg.wipeCutoff + ')' +
+      ' rankings(fightIDs:[' + ids + '], difficulty:' + result.difficulty + ') }';
   }).join(' ') + ' } }';
-  const deathsData = wclQuery_(deathsQuery, {}).reportData;
+  const detail = wclQuery_(detailQuery, {}).reportData;
 
   const byKey = {};
-  const pullsByDifficulty = {};
-  const statFor = function (actor) {
-    const k = charKey_(actor.name, actor.server || '');
+  const statFor = function (name, server) {
+    const k = charKey_(name, server || '');
     if (!byKey[k]) {
-      byKey[k] = { name: actor.name, server: actor.server, pulls: 0, deaths: 0 };
-      result.stats.add(actor.name, actor.server, byKey[k]);
+      byKey[k] = { name: name, server: server, pulls: 0, deaths: 0, parses: [], bracketParses: [] };
+      result.stats.add(name, server, byKey[k]);
     }
     return byKey[k];
   };
@@ -75,27 +84,42 @@ function getWeekRaids_(cfg, bounds) {
     (path_(r, 'masterData.actors') || []).forEach(function (a) { actors[a.id] = a; });
 
     r.fights.forEach(function (f) {
-      pullsByDifficulty[f.difficulty] = (pullsByDifficulty[f.difficulty] || 0) + 1;
       (f.friendlyPlayers || []).forEach(function (id) {
-        if (actors[id]) statFor(actors[id]).pulls++;
+        const a = actors[id];
+        if (a) statFor(a.name, a.server).pulls++;
       });
     });
 
-    const entries = path_(deathsData, 'r' + i + '.table.data.entries') || [];
-    entries.forEach(function (e) {
-      const actor = actors[e.id] || { name: e.name, server: '' };
-      statFor(actor).deaths++;
+    (path_(detail, 'r' + i + '.table.data.entries') || []).forEach(function (e) {
+      const a = actors[e.id] || { name: e.name, server: '' };
+      statFor(a.name, a.server).deaths++;
+    });
+
+    // Un parse par joueur et par kill classé.
+    (path_(detail, 'r' + i + '.rankings.data') || []).forEach(function (fight) {
+      ['tanks', 'healers', 'dps'].forEach(function (role) {
+        (path_(fight, 'roles.' + role + '.characters') || []).forEach(function (c) {
+          const s = statFor(c.name, path_(c, 'server.name') || '');
+          if (c.rankPercent != null) s.parses.push(Number(c.rankPercent));
+          if (c.bracketPercent != null) s.bracketParses.push(Number(c.bracketPercent));
+        });
+      });
     });
   });
 
-  result.difficulty = cfg.difficulty || Number(Object.keys(pullsByDifficulty).sort(function (a, b) {
-    return pullsByDifficulty[b] - pullsByDifficulty[a];
-  })[0]);
+  // Perf de la semaine : meilleure moyenne entre parses généraux et parses par tranche d'ilvl.
+  Object.keys(byKey).forEach(function (k) {
+    const s = byKey[k];
+    const avg = function (a) { return a.length ? a.reduce(function (x, y) { return x + y; }, 0) / a.length : null; };
+    const values = [avg(s.parses), avg(s.bracketParses)].filter(function (v) { return v != null; });
+    s.weekPerf = values.length ? Math.max.apply(null, values) : null;
+    s.rankedKills = Math.max(s.parses.length, s.bracketParses.length);
+  });
   return result;
 }
 
 /**
- * Perf WCL de chaque joueur du roster : meilleure valeur entre le classement
+ * Perf de SAISON (pour information) de chaque joueur du roster : meilleure valeur entre le classement
  * par tranche d'ilvl et le classement général. null si aucun log classé.
  */
 function getWclPerf_(cfg, roster, difficulty) {

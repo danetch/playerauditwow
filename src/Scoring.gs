@@ -54,7 +54,7 @@ function mode_(values) {
   return best;
 }
 
-/** Calcule une ligne par joueur du roster pour la semaine. */
+/** Calcule une ligne par joueur du roster pour la semaine (objet indexé par nom de colonne). */
 function computeWeek_(cfg, d) {
   const roster = d.roster;
   const vaults = roster.map(function (c) { return d.vault.get(c.name, c.realm) || null; });
@@ -78,15 +78,21 @@ function computeWeek_(cfg, d) {
     const stat = d.raids.stats.get(c.name, c.realm) || null;
     const ilvl = d.ilvls[c.id];
     const vault = vaults[i];
-    const perf = d.perf[c.id];
+    const weekPerf = stat ? stat.weekPerf : null;
+    const seasonPerf = d.seasonPerf[c.id];
 
     const parts = {
       presence: scorePresence_(pres == null ? null : pres, cfg),
       stuff: scoreStuff_(ilvl, vault, ref, cfg),
-      perf: scorePerf_(perf, cfg),
+      perf: scorePerf_(weekPerf, cfg),
       survie: scoreSurvie_(stat, refRate, cfg),
     };
-    const labels = { presence: 'présence', stuff: 'équipement', perf: 'perf', survie: 'survie' };
+    const labels = {
+      presence: 'présence',
+      stuff: 'équipement',
+      perf: 'perf (pas de kill classé cette semaine)',
+      survie: 'survie (pas assez de pulls)',
+    };
     let got = 0;
     let max = 0;
     const missing = [];
@@ -96,30 +102,33 @@ function computeWeek_(cfg, d) {
     });
     const raided = !!(stat && stat.pulls > 0);
     const total = raided && max ? Math.round(100 * got / max) : null;
+    const round1 = function (v) { return v == null ? '' : Math.round(v * 10) / 10; };
 
-    return [
-      d.period,
-      d.bounds.start,
-      c.name,
-      c.realm,
-      c.class || '',
-      c.role || '',
-      pres == null ? '' : pres,
-      blank_(parts.presence),
-      ilvl == null ? '' : Math.round(ilvl * 10) / 10,
-      vault && vault.opt2 != null ? vault.opt2 : '',
-      vault && vault.opt3 != null ? vault.opt3 : '',
-      blank_(parts.stuff),
-      perf == null ? '' : Math.round(perf * 10) / 10,
-      blank_(parts.perf),
-      stat ? stat.pulls : 0,
-      stat ? stat.deaths : 0,
-      stat && stat.pulls ? Math.round(100 * stat.deaths / stat.pulls) / 100 : '',
-      blank_(parts.survie),
-      blank_(total),
-      raided ? missing.join(', ') : "n'a pas raidé cette semaine",
-      now,
-    ];
+    return {
+      'Semaine': d.period,
+      'Début semaine': d.bounds.start,
+      'Joueur': c.name,
+      'Royaume': c.realm,
+      'Classe': c.class || '',
+      'Rôle': c.role || '',
+      'Présence %': pres == null ? '' : pres,
+      'Pts présence': blank_(parts.presence),
+      'ilvl': round1(ilvl),
+      'Coffre slot 2': vault && vault.opt2 != null ? vault.opt2 : '',
+      'Coffre slot 3': vault && vault.opt3 != null ? vault.opt3 : '',
+      'Pts équipement': blank_(parts.stuff),
+      'Perf semaine': round1(weekPerf),
+      'Kills classés': stat ? stat.rankedKills || 0 : 0,
+      'Pts perf': blank_(parts.perf),
+      'Perf saison (info)': round1(seasonPerf),
+      'Pulls': stat ? stat.pulls : 0,
+      'Morts': stat ? stat.deaths : 0,
+      'Morts/pull': stat && stat.pulls ? Math.round(100 * stat.deaths / stat.pulls) / 100 : '',
+      'Pts survie': blank_(parts.survie),
+      'Total /100': blank_(total),
+      'Remarques': raided ? missing.join(', ') : "n'a pas raidé cette semaine",
+      'Mis à jour': now,
+    };
   });
 }
 

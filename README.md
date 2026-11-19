@@ -8,7 +8,7 @@ Chaque nuit, le script récupère les raids de la semaine WoW en cours (du reset
 |---|---|---|
 | Présence | WowAudit (`v1/attendance`, % depuis le début de saison) | 20 |
 | Équipement | WowAudit : coffre M+ de la semaine précédente + ilvl du meilleur équipement | 20 |
-| Perf | Warcraft Logs (`zoneRankings`, meilleur entre classement par tranche d'ilvl et général) | 30 |
+| Perf | Warcraft Logs : moyenne des parses de la semaine sur les kills de la difficulté principale (meilleur entre classement général et par tranche d'ilvl). La moyenne de saison (`zoneRankings`) est affichée pour information, sans compter dans la note | 30 |
 | Survie | Warcraft Logs : morts par pull sur la semaine, comparées à la moyenne du raid | 30 |
 
 Une note sans donnée reste vide ; le total est ramené sur 100 avec les notes disponibles.

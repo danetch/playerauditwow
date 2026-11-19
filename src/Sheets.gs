@@ -1,61 +1,67 @@
 /**
  * Sheets.gs — écriture dans Historique (une ligne par joueur et par semaine) et Tableau (semaine en cours).
+ * Les colonnes sont repérées par leur nom : en ajouter une ne décale rien.
  */
 
 const HISTORY_HEADERS = [
   'Semaine', 'Début semaine', 'Joueur', 'Royaume', 'Classe', 'Rôle',
   'Présence %', 'Pts présence', 'ilvl', 'Coffre slot 2', 'Coffre slot 3', 'Pts équipement',
-  'Perf WCL', 'Pts perf', 'Pulls', 'Morts', 'Morts/pull', 'Pts survie',
+  'Perf semaine', 'Kills classés', 'Pts perf', 'Perf saison (info)',
+  'Pulls', 'Morts', 'Morts/pull', 'Pts survie',
   'Total /100', 'Remarques', 'Mis à jour',
 ];
 
-const COL = { period: 0, name: 2, realm: 3, total: 18 };
+const BOARD_HEADERS = [
+  'Joueur', 'Rôle', 'Total /100', 'Semaine précédente', 'Évolution',
+  'Pts présence', 'Pts équipement', 'Pts perf', 'Pts survie',
+  'Perf semaine', 'Perf saison (info)', 'Pulls', 'Morts', 'Remarques',
+];
 
-function getOrCreateSheet_(name, headers) {
-  const ss = SpreadsheetApp.getActive();
-  let sheet = ss.getSheetByName(name);
-  if (!sheet) sheet = ss.insertSheet(name);
-  if (sheet.getLastRow() === 0) {
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
-    sheet.setFrozenRows(1);
-  }
-  return sheet;
-}
-
-/** Remplace les lignes de la semaine (plus de doublons comme avec appendRow). */
-function upsertHistory_(period, rows) {
-  const sheet = getOrCreateSheet_(SHEETS.history, HISTORY_HEADERS);
-  const last = sheet.getLastRow();
-  const existing = last > 1 ? sheet.getRange(2, 1, last - 1, HISTORY_HEADERS.length).getValues() : [];
-  const kept = existing.filter(function (r) { return Number(r[COL.period]) !== period; });
-  const all = kept.concat(rows);
-  if (last > 1) sheet.getRange(2, 1, last - 1, HISTORY_HEADERS.length).clearContent();
-  if (all.length) sheet.getRange(2, 1, all.length, HISTORY_HEADERS.length).setValues(all);
-}
-
-/** Totaux d'une semaine passée, par personnage. */
-function getHistoryTotals_(period) {
+/** Lit Historique en objets indexés par nom de colonne. */
+function readHistory_() {
   const sheet = SpreadsheetApp.getActive().getSheetByName(SHEETS.history);
-  const out = {};
-  if (!sheet || sheet.getLastRow() < 2) return out;
-  sheet.getRange(2, 1, sheet.getLastRow() - 1, HISTORY_HEADERS.length).getValues().forEach(function (r) {
-    if (Number(r[COL.period]) === period) out[charKey_(r[COL.name], r[COL.realm])] = r[COL.total];
+  if (!sheet || sheet.getLastRow() < 2) return [];
+  const values = sheet.getDataRange().getValues();
+  const headers = values[0];
+  return values.slice(1).map(function (r) {
+    const o = {};
+    headers.forEach(function (h, i) { if (h !== '') o[h] = r[i]; });
+    return o;
   });
-  return out;
+}
+
+/** Remplace les lignes de la semaine (pas de doublons). */
+function upsertHistory_(period, rows) {
+  const ss = SpreadsheetApp.getActive();
+  const sheet = ss.getSheetByName(SHEETS.history) || ss.insertSheet(SHEETS.history);
+  const kept = readHistory_().filter(function (o) { return Number(o['Semaine']) !== period; });
+  const all = kept.concat(rows).map(function (o) {
+    return HISTORY_HEADERS.map(function (h) { return o[h] === undefined ? '' : o[h]; });
+  });
+  sheet.clearContents();
+  sheet.getRange(1, 1, 1, HISTORY_HEADERS.length).setValues([HISTORY_HEADERS]).setFontWeight('bold');
+  if (all.length) sheet.getRange(2, 1, all.length, HISTORY_HEADERS.length).setValues(all);
+  sheet.setFrozenRows(1);
 }
 
 function writeBoard_(period, rows, lastRaid) {
-  const headers = ['Joueur', 'Rôle', 'Total /100', 'Semaine précédente', 'Évolution',
-    'Pts présence', 'Pts équipement', 'Pts perf', 'Pts survie', 'Pulls', 'Morts', 'Remarques'];
-  const prev = getHistoryTotals_(period - 1);
+  const prev = {};
+  readHistory_().forEach(function (o) {
+    if (Number(o['Semaine']) === period - 1) prev[charKey_(o['Joueur'], o['Royaume'])] = o['Total /100'];
+  });
 
-  const lines = rows.map(function (r) {
-    const before = prev[charKey_(r[COL.name], r[COL.realm])];
-    const total = r[COL.total];
-    const delta = total !== '' && before !== '' && before != null ? total - before : '';
-    return [r[2], r[5], total, before == null ? '' : before, delta, r[7], r[11], r[13], r[17], r[14], r[15], r[19]];
+  const lines = rows.map(function (o) {
+    const before = prev[charKey_(o['Joueur'], o['Royaume'])];
+    const total = o['Total /100'];
+    const hasBefore = before !== undefined && before !== '';
+    const line = Object.assign({}, o, {
+      'Semaine précédente': hasBefore ? before : '',
+      'Évolution': total !== '' && hasBefore ? total - before : '',
+    });
+    return BOARD_HEADERS.map(function (h) { return line[h] === undefined ? '' : line[h]; });
   }).sort(function (a, b) {
-    return (b[2] === '' ? -1 : b[2]) - (a[2] === '' ? -1 : a[2]);
+    const t = BOARD_HEADERS.indexOf('Total /100');
+    return (b[t] === '' ? -1 : b[t]) - (a[t] === '' ? -1 : a[t]);
   });
 
   const ss = SpreadsheetApp.getActive();
@@ -64,7 +70,7 @@ function writeBoard_(period, rows, lastRaid) {
   const title = 'Semaine ' + period + (lastRaid ? ' — dernier raid pris en compte : ' +
     Utilities.formatDate(lastRaid, TZ, 'dd/MM/yyyy HH:mm') : '');
   sheet.getRange(1, 1).setValue(title).setFontWeight('bold');
-  sheet.getRange(2, 1, 1, headers.length).setValues([headers]).setFontWeight('bold');
-  if (lines.length) sheet.getRange(3, 1, lines.length, headers.length).setValues(lines);
+  sheet.getRange(2, 1, 1, BOARD_HEADERS.length).setValues([BOARD_HEADERS]).setFontWeight('bold');
+  if (lines.length) sheet.getRange(3, 1, lines.length, BOARD_HEADERS.length).setValues(lines);
   sheet.setFrozenRows(2);
 }

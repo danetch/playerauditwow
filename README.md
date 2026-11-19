@@ -41,13 +41,12 @@ legacy/
 2. `setupSettings()`, puis ajuster les valeurs dans l'onglet Settings.
 3. `forceRun()` pour vérifier, puis `installTriggers()` (déclencheur quotidien à 1 h, heure de Paris).
 
-## Déployer depuis le dépôt avec clasp
+## Déploiement
 
-```bash
-npm install -g @google/clasp
-clasp login
-cp .clasp.json.example .clasp.json   # renseigner l'ID du script (Paramètres du projet > ID du script)
-clasp push                           # envoie src/ vers Apps Script
-```
+Chaque modification de `src/` fusionnée dans `main` est envoyée automatiquement dans le projet Apps Script par la GitHub Action `.github/workflows/deploy.yml` (`clasp push`). On peut aussi la lancer à la main depuis l'onglet Actions (« Run workflow »).
 
-`clasp push` remplace le code du projet Apps Script par le contenu de `src/`, manifeste `appsscript.json` compris.
+- `.clasp.json` contient l'ID du script (pas un secret).
+- Le secret GitHub `CLASPRC_JSON` contient le fichier `~/.clasprc.json` obtenu avec `clasp login` (clasp 3). Ne jamais le commiter.
+- `clasp push` remplace tout le code du projet Apps Script par `src/`, manifeste `appsscript.json` compris.
+
+Pour déployer depuis un poste local : `npm install -g @google/clasp`, `clasp login`, puis `clasp push` à la racine du dépôt.
